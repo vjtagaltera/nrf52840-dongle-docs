@@ -1,0 +1,92 @@
+
+readme-bookmarks
+
+
+search nrf52840 dongle example projects
+
+[1] https://www.novelbits.io/nrf52840-usb-dongle-tutorial-2/
+
+[2] https://devzone.nordicsemi.com/nordic/short-range-guides/b/getting-started/posts/nrf52840-dongle-programming-tutorial
+
+
+search nrf52840 dongle communicate via usb
+
+[3] https://devzone.nordicsemi.com/f/nordic-q-a/59328/using-the-nrf52840-dongle-to-receive-and-display-data-via-the-serial-port-terminal
+
+    USB CDC ACM example - a virtual USB COM port
+    https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v15.3.0%2Fusbd_cdc_acm_example.html
+
+    USBD BLE UART example - further over BLE on the peripheral side
+
+    Using the hardware serial port, in ./boards/pca10059.h: 
+      these work with the ble_app_uart.c application. 
+
+        // Serial Port definitions for PCA10059
+        #define RX_PIN_NUMBER   9 // 13
+        #define TX_PIN_NUMBER  10 // 15
+        #define CTS_PIN_NUMBER UART_PIN_DISCONNECTED //NRF_UART_PSEL_DISCONNECTED // 17
+        #define RTS_PIN_NUMBER UART_PIN_DISCONNECTED //NRF_UART_PSEL_DISCONNECTED // 20
+        #define HWFC           false
+        
+        // LED definitions for PCA10059
+        // Each LED color is considered a separate LED
+        #define LEDS_NUMBER    4
+        #define LED1_G         NRF_GPIO_PIN_MAP(0,6)
+        #define LED2_R         NRF_GPIO_PIN_MAP(0,8)
+        #define LED2_G         NRF_GPIO_PIN_MAP(1,9)
+        #define LED2_B         NRF_GPIO_PIN_MAP(0,12)
+        #define LED_1          LED1_G
+        #define LED_2          LED2_R
+        #define LED_3          LED2_G
+        #define LED_4          LED2_B
+        #define LEDS_ACTIVE_STATE 0
+        #define LEDS_LIST { LED_1, LED_2, LED_3, LED_4 }
+        #define LEDS_INV_MASK  LEDS_MASK
+        #define BSP_LED_0      LED_1
+        #define BSP_LED_1      LED_2
+        #define BSP_LED_2      LED_3
+        #define BSP_LED_3      LED_4
+        
+        // There is only one button for the application as the second button is used for a RESET.
+        #define BUTTONS_NUMBER 1
+        #define BUTTON_1       NRF_GPIO_PIN_MAP(1,6)
+        #define BUTTON_PULL    NRF_GPIO_PIN_PULLUP
+        #define BUTTONS_ACTIVE_STATE 0
+        #define BUTTONS_LIST { BUTTON_1 }
+        #define BSP_BUTTON_0   BUTTON_1
+        #define BSP_SELF_PINRESET_PIN NRF_GPIO_PIN_MAP(0,19)
+
+[4] https://devzone.nordicsemi.com/f/nordic-q-a/38161/using-nrf52840-dongle-as-usb-central-device
+    the pc-ble-driver and nrf-connect are on github. 
+
+[5] https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v15.3.0%2Fusbd_cdc_acm_example.html
+    USB CDC ACM example
+
+[6] https://devzone.nordicsemi.com/f/nordic-q-a/41537/serial-port-on-the-nrf52840-dongle
+    Serial port on the nRF52840 Dongle
+    this works on nRF52840 DK, on dongle missing in ./boards/pca10069.h: 
+
+        NRF_SERIAL_DRV_UART_CONFIG_DEF(m_uart0_drv_config,
+            RX_PIN_NUMBER, TX_PIN_NUMBER,
+            RTS_PIN_NUMBER, CTS_PIN_NUMBER,
+            NRF_UART_HWFC_ENABLED, NRF_UART_PARITY_EXCLUDED,
+            NRF_UART_BAUDRATE_115200,
+            UART_DEFAULT_CONFIG_IRQ_PRIORITY);
+        
+        file: boards/pca10056.h
+        
+        #define RX_PIN_NUMBER  8
+        #define TX_PIN_NUMBER  6
+        #define CTS_PIN_NUMBER 7
+        #define RTS_PIN_NUMBER 5
+        #define HWFC           true
+
+[7] https://wiki.segger.com/J-Link_cannot_connect_to_the_CPU
+    JLink debugging
+
+[8] https://jimmywongiot.com/2019/10/25/how-to-use-the-nrf52840-dongle-pca10059-as-development-board/
+    https://github.com/jimmywong2003/nrf52840-dongle-example/
+
+[9] https://github.com/NordicSemiconductor/pc-nrfconnect-launcher
+
+

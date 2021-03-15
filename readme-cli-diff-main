@@ -1,0 +1,977 @@
+
+the dongle4- is copied from sdk15.3.0 blinky example with changes to enable rtt log and disable uart log.
+the dongle5- is from the github jimmywong2003/nrf52840-dongle-example.
+
+~/nRF5_SDK_15.3.0_59ac345/examples/ble_peripheral/dongle5-blinky_cli_usb_log
+$ diff -ubB ../dongle4_blinky/main.c main.c > readme-cli-diff-main
+
+~/nRF5_SDK_15.3.0_59ac345/examples/ble_peripheral/dongle5-blinky_cli_usb_log
+$ diff -ubB ../dongle4_blinky/pca10059/s140/config/sdk_config.h pca10059/s140/config/sdk_config.h >> readme-cli-diff-main
+
+
+--- ../dongle4_blinky/main.c	2021-03-15 07:32:21.175138000 -0700
++++ main.c	2021-03-14 19:48:48.333935400 -0700
+@@ -64,17 +64,62 @@
+ #include "nrf_ble_qwr.h"
+ #include "nrf_pwr_mgmt.h"
+ 
++#include "nrf_drv_clock.h"
++#include "nrf_gpio.h"
++#include "nrf_delay.h"
++
++#include "fds.h"
++
++#include "nrf_cli.h"
++#include "nrf_cli_rtt.h"
++#include "nrf_cli_types.h"
++
+ #include "nrf_log.h"
+ #include "nrf_log_ctrl.h"
+ #include "nrf_log_default_backends.h"
+ 
++#include "nrf_log_backend_flash.h"
++
++#include "nrf_fstorage_nvmc.h"
++#include "nrf_fstorage_sd.h"
++
++#include "nrf_mpu_lib.h"
++#include "nrf_stack_guard.h"
++
++#if defined(APP_USBD_ENABLED) && APP_USBD_ENABLED
++#define CLI_OVER_USB_CDC_ACM 1
++#else
++#define CLI_OVER_USB_CDC_ACM 0
++#endif
++
++#if CLI_OVER_USB_CDC_ACM
++#include "nrf_cli_cdc_acm.h"
++#include "nrf_drv_usbd.h"
++#include "app_usbd_core.h"
++#include "app_usbd.h"
++#include "app_usbd_string_desc.h"
++#include "app_usbd_cdc_acm.h"
++#endif //CLI_OVER_USB_CDC_ACM
++
++#if 0//defined(TX_PIN_NUMBER) && defined(RX_PIN_NUMBER)
++#define CLI_OVER_UART 1
++#else
++#define CLI_OVER_UART 0
++#endif
++
++#if CLI_OVER_UART
++#include "nrf_cli_uart.h"
++#endif
++
++/* If enabled then CYCCNT (high resolution) timestamp is used for the logger. */
++#define USE_CYCCNT_TIMESTAMP_FOR_LOG 1
+ 
+ #define ADVERTISING_LED                 BSP_BOARD_LED_0                         /**< Is on when device is advertising. */
+ #define CONNECTED_LED                   BSP_BOARD_LED_1                         /**< Is on when device has connected. */
+ #define LEDBUTTON_LED                   BSP_BOARD_LED_2                         /**< LED to be toggled with the help of the LED Button Service. */
+ #define LEDBUTTON_BUTTON                BSP_BUTTON_0                            /**< Button that will trigger the notification event with the LED Button Service */
+ 
+-#define DEVICE_NAME                     "Nordic_Blinky"                         /**< Name of device. Will be included in the advertising data. */
++#define DEVICE_NAME                     "840_USB"                         /**< Name of device. Will be included in the advertising data. */
+ 
+ #define APP_BLE_OBSERVER_PRIO           3                                       /**< Application's BLE observer priority. You shouldn't need to modify this value. */
+ #define APP_BLE_CONN_CFG_TAG            1                                       /**< A tag identifying the SoftDevice BLE configuration. */
+@@ -123,6 +167,307 @@
+     }
+ };
+ 
++#if NRF_LOG_BACKEND_FLASHLOG_ENABLED
++NRF_LOG_BACKEND_FLASHLOG_DEF(m_flash_log_backend);
++#endif
++
++#if NRF_LOG_BACKEND_CRASHLOG_ENABLED
++NRF_LOG_BACKEND_CRASHLOG_DEF(m_crash_log_backend);
++#endif
++
++/* Counter timer. */
++APP_TIMER_DEF(m_timer_0);
++
++/* Declared in demo_cli.c */
++extern uint32_t m_counter;
++extern bool m_counter_active;
++
++#if CLI_OVER_USB_CDC_ACM
++
++/**
++ * @brief Enable power USB detection
++ *
++ * Configure if example supports USB port connection
++ */
++#ifndef USBD_POWER_DETECTION
++#define USBD_POWER_DETECTION true
++#endif
++
++
++static void usbd_user_ev_handler(app_usbd_event_type_t event)
++{
++        switch (event)
++        {
++        case APP_USBD_EVT_STOPPED:
++                app_usbd_disable();
++                break;
++        case APP_USBD_EVT_POWER_DETECTED:
++                if (!nrf_drv_usbd_is_enabled())
++                {
++                        app_usbd_enable();
++                }
++                break;
++        case APP_USBD_EVT_POWER_REMOVED:
++                app_usbd_stop();
++                break;
++        case APP_USBD_EVT_POWER_READY:
++                app_usbd_start();
++                break;
++        default:
++                break;
++        }
++}
++
++#endif //CLI_OVER_USB_CDC_ACM
++
++
++/**
++ * @brief Command line interface instance
++ * */
++#define CLI_EXAMPLE_LOG_QUEUE_SIZE  (16)//4)
++
++#if CLI_OVER_USB_CDC_ACM
++NRF_CLI_CDC_ACM_DEF(m_cli_cdc_acm_transport);
++NRF_CLI_DEF(m_cli_cdc_acm,
++            "usb_cli:~$ ",
++            &m_cli_cdc_acm_transport.transport,
++            '\r',
++            CLI_EXAMPLE_LOG_QUEUE_SIZE);
++#endif //CLI_OVER_USB_CDC_ACM
++
++#if CLI_OVER_UART
++NRF_CLI_UART_DEF(m_cli_uart_transport, 0, 64, 16);
++NRF_CLI_DEF(m_cli_uart,
++            "uart_cli:~$ ",
++            &m_cli_uart_transport.transport,
++            '\r',
++            CLI_EXAMPLE_LOG_QUEUE_SIZE);
++#endif
++
++NRF_CLI_RTT_DEF(m_cli_rtt_transport);
++NRF_CLI_DEF(m_cli_rtt,
++            "rtt_cli:~$ ",
++            &m_cli_rtt_transport.transport,
++            '\n',
++            CLI_EXAMPLE_LOG_QUEUE_SIZE);
++
++
++//
++//static void CDC_ACM_1_user_ev_handler(app_usbd_class_inst_t const * p_inst,
++//                                    app_usbd_cdc_acm_user_event_t event);
++//
++//#define READ_SIZE 1
++//
++//static char m_rx_buffer[READ_SIZE];
++//static char m_tx_buffer[NRF_DRV_USBD_EPSIZE];
++//static bool m_send_flag = 0;
++//
++//#define CDC_ACM_1_COMM_INTERFACE  2//0
++//#define CDC_ACM_1_COMM_EPIN       NRF_DRV_USBD_EPIN4//NRF_DRV_USBD_EPIN2
++//
++//#define CDC_ACM_1_DATA_INTERFACE  3//1
++//#define CDC_ACM_1_DATA_EPIN       NRF_DRV_USBD_EPIN3//NRF_DRV_USBD_EPIN1
++//#define CDC_ACM_1_DATA_EPOUT      NRF_DRV_USBD_EPOUT2//NRF_DRV_USBD_EPOUT1
++//
++//
++///**
++// * @brief CDC_ACM class instance
++// * */
++//APP_USBD_CDC_ACM_GLOBAL_DEF(m_app_cdc_acm_1,
++//                            CDC_ACM_1_user_ev_handler,
++//                            CDC_ACM_1_COMM_INTERFACE,
++//                            CDC_ACM_1_DATA_INTERFACE,
++//                            CDC_ACM_1_COMM_EPIN,
++//                            CDC_ACM_1_DATA_EPIN,
++//                            CDC_ACM_1_DATA_EPOUT,
++//                            APP_USBD_CDC_COMM_PROTOCOL_AT_V250
++//);
++//
++///**
++// * @brief User event handler @ref app_usbd_cdc_acm_user_ev_handler_t (headphones)
++// * */
++//static void CDC_ACM_1_user_ev_handler(app_usbd_class_inst_t const * p_inst,
++//                                    app_usbd_cdc_acm_user_event_t event)
++//{
++//    app_usbd_cdc_acm_t const * p_cdc_acm = app_usbd_cdc_acm_class_get(p_inst);
++//
++//    switch (event)
++//    {
++//        case APP_USBD_CDC_ACM_USER_EVT_PORT_OPEN:
++//        {
++//
++//            /*Setup first transfer*/
++//            ret_code_t ret = app_usbd_cdc_acm_read(&m_app_cdc_acm_1,
++//                                                   m_rx_buffer,
++//                                                   READ_SIZE);
++//            UNUSED_VARIABLE(ret);
++//            break;
++//        }
++//        case APP_USBD_CDC_ACM_USER_EVT_PORT_CLOSE:
++//            break;
++//        case APP_USBD_CDC_ACM_USER_EVT_TX_DONE:
++//            break;
++//        case APP_USBD_CDC_ACM_USER_EVT_RX_DONE:
++//        {
++//            ret_code_t ret;
++//            NRF_LOG_INFO("Bytes waiting: %d", app_usbd_cdc_acm_bytes_stored(p_cdc_acm));
++//            do
++//            {
++//                /*Get amount of data transfered*/
++//                size_t size = app_usbd_cdc_acm_rx_size(p_cdc_acm);
++//                NRF_LOG_INFO("RX: size: %lu char: %c", size, m_rx_buffer[0]);
++//
++//                /* Fetch data until internal buffer is empty */
++//                ret = app_usbd_cdc_acm_read(&m_app_cdc_acm_1,
++//                                            m_rx_buffer,
++//                                            READ_SIZE);
++//            } while (ret == NRF_SUCCESS);
++//
++//            break;
++//        }
++//        default:
++//            break;
++//    }
++//}
++
++static void timer_handle(void * p_context)
++{
++        UNUSED_PARAMETER(p_context);
++
++        if (m_counter_active)
++        {
++                m_counter++;
++                NRF_LOG_RAW_INFO("counter = %d\n", m_counter);
++        }
++}
++
++static void cli_start(void)
++{
++        ret_code_t ret;
++
++#if CLI_OVER_USB_CDC_ACM
++        ret = nrf_cli_start(&m_cli_cdc_acm);
++        APP_ERROR_CHECK(ret);
++#endif
++
++#if CLI_OVER_UART
++        ret = nrf_cli_start(&m_cli_uart);
++        APP_ERROR_CHECK(ret);
++#endif
++
++        ret = nrf_cli_start(&m_cli_rtt);
++        APP_ERROR_CHECK(ret);
++}
++
++static void cli_init(void)
++{
++        ret_code_t ret;
++
++#if CLI_OVER_USB_CDC_ACM
++        ret = nrf_cli_init(&m_cli_cdc_acm, NULL, true, true, NRF_LOG_SEVERITY_INFO);
++        APP_ERROR_CHECK(ret);
++#endif
++
++#if CLI_OVER_UART
++        nrf_drv_uart_config_t uart_config = NRF_DRV_UART_DEFAULT_CONFIG;
++        uart_config.pseltxd = TX_PIN_NUMBER;
++        uart_config.pselrxd = RX_PIN_NUMBER;
++        uart_config.hwfc    = NRF_UART_HWFC_DISABLED;
++        ret = nrf_cli_init(&m_cli_uart, &uart_config, true, true, NRF_LOG_SEVERITY_INFO);
++        APP_ERROR_CHECK(ret);
++#endif
++
++        ret = nrf_cli_init(&m_cli_rtt, NULL, true, true, NRF_LOG_SEVERITY_INFO);
++        APP_ERROR_CHECK(ret);
++}
++
++static void usbd_init(void)
++{
++#if CLI_OVER_USB_CDC_ACM
++        ret_code_t ret;
++        static const app_usbd_config_t usbd_config = {
++                .ev_handler = app_usbd_event_execute,
++                .ev_state_proc = usbd_user_ev_handler
++        };
++        ret = app_usbd_init(&usbd_config);
++        APP_ERROR_CHECK(ret);
++
++        app_usbd_class_inst_t const * class_cdc_acm =
++                app_usbd_cdc_acm_class_inst_get(&nrf_cli_cdc_acm);
++        ret = app_usbd_class_append(class_cdc_acm);
++        APP_ERROR_CHECK(ret);
++#endif 
++}
++
++static void usbd_enable(void)
++{
++        ret_code_t ret;
++        if (USBD_POWER_DETECTION)
++        {
++                ret = app_usbd_power_events_enable();
++                APP_ERROR_CHECK(ret);
++        }
++        else
++        {
++                NRF_LOG_INFO("No USB power detection enabled\nStarting USB now");
++
++                app_usbd_enable();
++                app_usbd_start();
++        }
++
++        /* Give some time for the host to enumerate and connect to the USB CDC port */
++        nrf_delay_ms(500);
++
++//#endif
++}
++
++static void cli_process(void)
++{
++#if CLI_OVER_USB_CDC_ACM
++        nrf_cli_process(&m_cli_cdc_acm);
++#endif
++
++#if CLI_OVER_UART
++        nrf_cli_process(&m_cli_uart);
++#endif
++        nrf_cli_process(&m_cli_rtt);
++}
++
++static void flashlog_init(void)
++{
++        ret_code_t ret;
++        int32_t backend_id;
++
++        ret = nrf_log_backend_flash_init(&nrf_fstorage_sd);
++        APP_ERROR_CHECK(ret);
++
++#if NRF_LOG_BACKEND_FLASHLOG_ENABLED
++        backend_id = nrf_log_backend_add(&m_flash_log_backend, NRF_LOG_SEVERITY_WARNING);
++        APP_ERROR_CHECK_BOOL(backend_id >= 0);
++
++        nrf_log_backend_enable(&m_flash_log_backend);
++#endif
++
++#if NRF_LOG_BACKEND_CRASHLOG_ENABLED
++        backend_id = nrf_log_backend_add(&m_crash_log_backend, NRF_LOG_SEVERITY_INFO);
++        APP_ERROR_CHECK_BOOL(backend_id >= 0);
++
++        nrf_log_backend_enable(&m_crash_log_backend);
++#endif
++}
++
++static inline void stack_guard_init(void)
++{
++        APP_ERROR_CHECK(nrf_mpu_lib_init());
++        APP_ERROR_CHECK(nrf_stack_guard_init());
++}
++
++uint32_t cyccnt_get(void)
++{
++        return DWT->CYCCNT;
++}
++
++
+ /**@brief Function for assert macro callback.
+  *
+  * @details This function will be called in case of an assert in the SoftDevice.
+@@ -269,15 +614,31 @@
+  */
+ static void led_write_handler(uint16_t conn_handle, ble_lbs_t * p_lbs, uint8_t led_state)
+ {
++        ret_code_t err_code;
+     if (led_state)
+     {
+         bsp_board_led_on(LEDBUTTON_LED);
+         NRF_LOG_INFO("Received LED ON!");
++//                {
++//                    size_t size = sprintf(m_tx_buffer, "Received LED ON!\n");
++//                    err_code = app_usbd_cdc_acm_write(&m_app_cdc_acm_1, m_tx_buffer, size);
++//                    if (err_code == NRF_SUCCESS)
++//                    {
++//                    }
++//                }
+     }
+     else
+     {
+         bsp_board_led_off(LEDBUTTON_LED);
+         NRF_LOG_INFO("Received LED OFF!");
++//                {
++//                    size_t size = sprintf(m_tx_buffer, "Received LED OFF!\n");
++//                    err_code = app_usbd_cdc_acm_write(&m_app_cdc_acm_1, m_tx_buffer, size);
++//                    if (err_code == NRF_SUCCESS)
++//                    {
++//                    }
++//                }
++
+     }
+ }
+ 
+@@ -553,21 +914,75 @@
+  */
+ static void idle_state_handle(void)
+ {
+-    if (NRF_LOG_PROCESS() == false)
++        //if (NRF_LOG_PROCESS() == false)
+     {
+         nrf_pwr_mgmt_run();
+     }
+ }
+ 
++void idle_task(void * p_context)
++{
++
++        advertising_start();
++
++        // Enter main loop.
++        for (;;)
++        {
++                if (NRF_LOG_PROCESS() == false)
++                {
++                        nrf_pwr_mgmt_run();
++                }
++                task_yield();
++        }
++}
+ 
+ /**@brief Function for application main entry.
+  */
+ int main(void)
+ {
++
++        ret_code_t ret;
++
++        if (USE_CYCCNT_TIMESTAMP_FOR_LOG)
++        {
++                CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
++                DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
++                DWT->CYCCNT = 0;
++                APP_ERROR_CHECK(NRF_LOG_INIT(cyccnt_get, 64000000));
++        }
++        else
++        {
++                APP_ERROR_CHECK(NRF_LOG_INIT(app_timer_cnt_get));
++        }
++
++        ret = nrf_drv_clock_init();
++        APP_ERROR_CHECK(ret);
++        nrf_drv_clock_lfclk_request(NULL);
++
+     // Initialize.
+-    log_init();
++        //log_init();
+     leds_init();
+     timers_init();
++
++        ret = app_timer_create(&m_timer_0, APP_TIMER_MODE_REPEATED, timer_handle);
++        APP_ERROR_CHECK(ret);
++
++        ret = app_timer_start(m_timer_0, APP_TIMER_TICKS(1000), NULL);
++        APP_ERROR_CHECK(ret);
++
++        stack_guard_init();
++
++        cli_init();
++        usbd_init();
++
++        nrf_delay_ms(1000);
++        log_init();
++
++        usbd_enable();
++
++
++        nrf_delay_ms(3000);
++
+     buttons_init();
+     power_management_init();
+     ble_stack_init();
+@@ -577,16 +992,28 @@
+     advertising_init();
+     conn_params_init();
+ 
+-    // Start execution.
++        ret = fds_init();
++        APP_ERROR_CHECK(ret);
++
++        UNUSED_RETURN_VALUE(nrf_log_config_load());
++
++        //APP_ERROR_CHECK(nrf_cli_task_create(&m_cli));
++        APP_ERROR_CHECK(nrf_cli_task_create(&m_cli_rtt));
++
++
++//        APP_ERROR_CHECK(nrf_cli_task_create(&m_cli_uart));
++        APP_ERROR_CHECK(nrf_cli_task_create(&m_cli_cdc_acm));
++
++        //cli_start();
++
++        flashlog_init();
++
++        NRF_LOG_RAW_INFO("Command Line Interface example started.\n");
++        NRF_LOG_RAW_INFO("Please press the Tab key to see all available commands.\n");
++
+     NRF_LOG_INFO("Blinky example started.");
+-    NRF_LOG_INFO("Blinky example started. dong4 blinky");
+-    advertising_start();
++        task_manager_start(idle_task, NULL);
+ 
+-    // Enter main loop.
+-    for (;;)
+-    {
+-        idle_state_handle();
+-    }
+ }
+ 
+ 
+--- ../dongle4_blinky/pca10059/s140/config/sdk_config.h	2021-03-14 19:23:19.612561800 -0700
++++ pca10059/s140/config/sdk_config.h	2021-03-14 19:48:48.355842000 -0700
+@@ -524,7 +524,7 @@
+ // <e> NRF_MPU_LIB_ENABLED - nrf_mpu_lib - Module for MPU
+ //==========================================================
+ #ifndef NRF_MPU_LIB_ENABLED
+-#define NRF_MPU_LIB_ENABLED 0
++#define NRF_MPU_LIB_ENABLED 1
+ #endif
+ // <q> NRF_MPU_LIB_CLI_CMDS  - Enable CLI commands specific to the module.
+  
+@@ -538,7 +538,7 @@
+ // <e> NRF_STACK_GUARD_ENABLED - nrf_stack_guard - Stack guard
+ //==========================================================
+ #ifndef NRF_STACK_GUARD_ENABLED
+-#define NRF_STACK_GUARD_ENABLED 0
++#define NRF_STACK_GUARD_ENABLED 1
+ #endif
+ // <o> NRF_STACK_GUARD_CONFIG_SIZE  - Size of the stack guard.
+  
+@@ -2429,7 +2429,7 @@
+ // <e> NRFX_POWER_ENABLED - nrfx_power - POWER peripheral driver
+ //==========================================================
+ #ifndef NRFX_POWER_ENABLED
+-#define NRFX_POWER_ENABLED 0
++#define NRFX_POWER_ENABLED 1
+ #endif
+ // <o> NRFX_POWER_CONFIG_IRQ_PRIORITY  - Interrupt priority
+  
+@@ -4300,6 +4300,12 @@
+ 
+ // </e>
+ 
++// <q> NRFX_SYSTICK_ENABLED  - nrfx_systick - ARM(R) SysTick driver
++
++#ifndef NRFX_SYSTICK_ENABLED
++#define NRFX_SYSTICK_ENABLED 1
++#endif
++
+ // <e> NRFX_UARTE_ENABLED - nrfx_uarte - UARTE peripheral driver
+ //==========================================================
+ #ifndef NRFX_UARTE_ENABLED
+@@ -4550,7 +4556,7 @@
+ // <e> NRFX_USBD_ENABLED - nrfx_usbd - USBD peripheral driver
+ //==========================================================
+ #ifndef NRFX_USBD_ENABLED
+-#define NRFX_USBD_ENABLED 0
++#define NRFX_USBD_ENABLED 1
+ #endif
+ // <o> NRFX_USBD_CONFIG_IRQ_PRIORITY  - Interrupt priority
+  
+@@ -4799,7 +4805,7 @@
+ // <e> POWER_ENABLED - nrf_drv_power - POWER peripheral driver - legacy layer
+ //==========================================================
+ #ifndef POWER_ENABLED
+-#define POWER_ENABLED 0
++#define POWER_ENABLED 1
+ #endif
+ // <o> POWER_CONFIG_IRQ_PRIORITY  - Interrupt priority
+  
+@@ -5881,7 +5887,7 @@
+ // <e> USBD_ENABLED - nrf_drv_usbd - Software Component
+ //==========================================================
+ #ifndef USBD_ENABLED
+-#define USBD_ENABLED 0
++#define USBD_ENABLED 1
+ #endif
+ // <o> USBD_CONFIG_IRQ_PRIORITY  - Interrupt priority
+  
+@@ -6180,7 +6186,7 @@
+ // <e> APP_USBD_ENABLED - app_usbd - USB Device library
+ //==========================================================
+ #ifndef APP_USBD_ENABLED
+-#define APP_USBD_ENABLED 0
++#define APP_USBD_ENABLED 1
+ #endif
+ // <o> APP_USBD_VID - Vendor ID.  <0x0000-0xFFFF> 
+ 
+@@ -6251,7 +6257,7 @@
+ // <i> Functions that modify USBD state are functions for sleep, wakeup, start, stop, enable, and disable.
+ //==========================================================
+ #ifndef APP_USBD_CONFIG_EVENT_QUEUE_ENABLE
+-#define APP_USBD_CONFIG_EVENT_QUEUE_ENABLE 1
++#define APP_USBD_CONFIG_EVENT_QUEUE_ENABLE 0
+ #endif
+ // <o> APP_USBD_CONFIG_EVENT_QUEUE_SIZE - The size of the event queue.  <16-64> 
+ 
+@@ -6519,7 +6525,7 @@
+ // <e> FDS_ENABLED - fds - Flash data storage module
+ //==========================================================
+ #ifndef FDS_ENABLED
+-#define FDS_ENABLED 0
++#define FDS_ENABLED 1
+ #endif
+ // <h> Pages - Virtual page settings
+ 
+@@ -6637,7 +6643,7 @@
+  
+ 
+ #ifndef HARDFAULT_HANDLER_ENABLED
+-#define HARDFAULT_HANDLER_ENABLED 0
++#define HARDFAULT_HANDLER_ENABLED 1
+ #endif
+ 
+ // <e> HCI_MEM_POOL_ENABLED - hci_mem_pool - memory pool implementation used by HCI
+@@ -6959,13 +6965,48 @@
+  
+ 
+ #ifndef NRF_BALLOC_CLI_CMDS
+-#define NRF_BALLOC_CLI_CMDS 0
++#define NRF_BALLOC_CLI_CMDS 1
+ #endif
+ 
+ // </e>
+ 
+ // </e>
+ 
++
++// <e> NRF_CLI_RTT_ENABLED - nrf_cli_rtt - RTT command line interface transport
++//==========================================================
++#ifndef NRF_CLI_RTT_ENABLED
++#define NRF_CLI_RTT_ENABLED 1
++#endif
++// <o> NRF_CLI_RTT_TERMINAL_ID - RTT terminal ID for CLI.
++#ifndef NRF_CLI_RTT_TERMINAL_ID
++#define NRF_CLI_RTT_TERMINAL_ID 0
++#endif
++
++// <o> NRF_CLI_RTT_TX_RETRY_DELAY_MS - Period before retrying writing to RTT
++#ifndef NRF_CLI_RTT_TX_RETRY_DELAY_MS
++#define NRF_CLI_RTT_TX_RETRY_DELAY_MS 10
++#endif
++
++// <o> NRF_CLI_RTT_TX_RETRY_CNT - Writing to RTT retries.
++// <i> If RTT fails to accept any new data after retries
++// <i> module assumes that host is not active and on next
++// <i> request it will perform only one write attempt.
++// <i> On successful writing, module assumes that host is active
++// <i> and scheme with retry is applied again.
++
++#ifndef NRF_CLI_RTT_TX_RETRY_CNT
++#define NRF_CLI_RTT_TX_RETRY_CNT 5
++#endif
++
++// </e>
++
++// <q> NRF_CLI_UART_ENABLED  - nrf_cli_uart - UART command line interface transport
++
++#ifndef NRF_CLI_UART_ENABLED
++#define NRF_CLI_UART_ENABLED 1
++#endif
++
+ // <e> NRF_CSENSE_ENABLED - nrf_csense - Capacitive sensor module
+ //==========================================================
+ #ifndef NRF_CSENSE_ENABLED
+@@ -7043,7 +7084,7 @@
+ // <e> NRF_FSTORAGE_ENABLED - nrf_fstorage - Flash abstraction library
+ //==========================================================
+ #ifndef NRF_FSTORAGE_ENABLED
+-#define NRF_FSTORAGE_ENABLED 0
++#define NRF_FSTORAGE_ENABLED 1
+ #endif
+ // <h> nrf_fstorage - Common settings
+ 
+@@ -7237,7 +7278,7 @@
+ // <e> NRF_QUEUE_ENABLED - nrf_queue - Queue module
+ //==========================================================
+ #ifndef NRF_QUEUE_ENABLED
+-#define NRF_QUEUE_ENABLED 0
++#define NRF_QUEUE_ENABLED 1
+ #endif
+ // <q> NRF_QUEUE_CLI_CMDS  - Enable CLI commands specific to the module
+  
+@@ -7293,23 +7334,23 @@
+ // <e> TASK_MANAGER_ENABLED - task_manager - Task manager.
+ //==========================================================
+ #ifndef TASK_MANAGER_ENABLED
+-#define TASK_MANAGER_ENABLED 0
++#define TASK_MANAGER_ENABLED 1
+ #endif
+ // <q> TASK_MANAGER_CLI_CMDS  - Enable CLI commands specific to the module
+  
+ 
+ #ifndef TASK_MANAGER_CLI_CMDS
+-#define TASK_MANAGER_CLI_CMDS 0
++#define TASK_MANAGER_CLI_CMDS 1
+ #endif
+ 
+ // <o> TASK_MANAGER_CONFIG_MAX_TASKS - Maximum number of tasks which can be created 
+ #ifndef TASK_MANAGER_CONFIG_MAX_TASKS
+-#define TASK_MANAGER_CONFIG_MAX_TASKS 2
++#define TASK_MANAGER_CONFIG_MAX_TASKS 3
+ #endif
+ 
+ // <o> TASK_MANAGER_CONFIG_STACK_SIZE - Stack size for every task (power of 2) 
+ #ifndef TASK_MANAGER_CONFIG_STACK_SIZE
+-#define TASK_MANAGER_CONFIG_STACK_SIZE 1024
++#define TASK_MANAGER_CONFIG_STACK_SIZE 2048
+ #endif
+ 
+ // <q> TASK_MANAGER_CONFIG_STACK_PROFILER_ENABLED  - Enable stack profiling.
+@@ -7361,7 +7402,7 @@
+  
+ 
+ #ifndef APP_USBD_CDC_ACM_ENABLED
+-#define APP_USBD_CDC_ACM_ENABLED 0
++#define APP_USBD_CDC_ACM_ENABLED 1
+ #endif
+ 
+ // <q> APP_USBD_CDC_ACM_ZLP_ON_EPSIZE_WRITE  - Send ZLP on write with same size as endpoint
+@@ -7384,7 +7425,7 @@
+  
+ 
+ #ifndef NRF_CLI_ENABLED
+-#define NRF_CLI_ENABLED 0
++#define NRF_CLI_ENABLED 1
+ #endif
+ 
+ // <o> NRF_CLI_ARGC_MAX - Maximum number of parameters passed to the command handler. 
+@@ -7415,7 +7456,7 @@
+  
+ 
+ #ifndef NRF_CLI_WILDCARD_ENABLED
+-#define NRF_CLI_WILDCARD_ENABLED 0
++#define NRF_CLI_WILDCARD_ENABLED 1
+ #endif
+ 
+ // <q> NRF_CLI_METAKEYS_ENABLED  - Enable additional control keys for CLI commands like ctrl+a, ctrl+e, ctrl+w, ctrl+u
+@@ -7465,14 +7506,52 @@
+  
+ 
+ #ifndef NRF_CLI_LOG_BACKEND
+-#define NRF_CLI_LOG_BACKEND 1
++#define NRF_CLI_LOG_BACKEND 0
+ #endif
+ 
+ // <q> NRF_CLI_USES_TASK_MANAGER_ENABLED  - Enable CLI to use task_manager
+  
+ 
+ #ifndef NRF_CLI_USES_TASK_MANAGER_ENABLED
+-#define NRF_CLI_USES_TASK_MANAGER_ENABLED 0
++#define NRF_CLI_USES_TASK_MANAGER_ENABLED 1
++#endif
++
++// </h>
++//==========================================================
++
++// <h> nrf_cli_cdc_acm - CDC ACM command line interface transport
++
++//==========================================================
++// <q> NRF_CLI_CDC_ACM_ENABLED  - Enable/disable the CLI CDC ACM module.
++
++
++#ifndef NRF_CLI_CDC_ACM_ENABLED
++#define NRF_CLI_CDC_ACM_ENABLED 1
++#endif
++
++// <o> NRF_CLI_CDC_ACM_COMM_INTERFACE - COMM interface number.
++#ifndef NRF_CLI_CDC_ACM_COMM_INTERFACE
++#define NRF_CLI_CDC_ACM_COMM_INTERFACE 0
++#endif
++
++// <s> NRF_CLI_CDC_ACM_COMM_EPIN - COMM IN endpoint number.
++#ifndef NRF_CLI_CDC_ACM_COMM_EPIN
++#define NRF_CLI_CDC_ACM_COMM_EPIN NRF_DRV_USBD_EPIN2
++#endif
++
++// <o> NRF_CLI_CDC_ACM_DATA_INTERFACE - DATA interface number.
++#ifndef NRF_CLI_CDC_ACM_DATA_INTERFACE
++#define NRF_CLI_CDC_ACM_DATA_INTERFACE 1
++#endif
++
++// <s> NRF_CLI_CDC_ACM_DATA_EPIN - DATA IN endpoint number.
++#ifndef NRF_CLI_CDC_ACM_DATA_EPIN
++#define NRF_CLI_CDC_ACM_DATA_EPIN NRF_DRV_USBD_EPIN1
++#endif
++
++// <s> NRF_CLI_CDC_ACM_DATA_EPOUT - DATA OUT endpoint number.
++#ifndef NRF_CLI_CDC_ACM_DATA_EPOUT
++#define NRF_CLI_CDC_ACM_DATA_EPOUT NRF_DRV_USBD_EPOUT1
+ #endif
+ 
+ // </h> 
+@@ -7492,7 +7572,7 @@
+  
+ 
+ #ifndef NRF_FPRINTF_FLAG_AUTOMATIC_CR_ON_LF_ENABLED
+-#define NRF_FPRINTF_FLAG_AUTOMATIC_CR_ON_LF_ENABLED 1
++#define NRF_FPRINTF_FLAG_AUTOMATIC_CR_ON_LF_ENABLED 0
+ #endif
+ 
+ // </h> 
+@@ -7503,11 +7583,86 @@
+ 
+ // <h> nRF_Log 
+ 
++
++//==========================================================
++// <e> NRF_LOG_BACKEND_FLASH_ENABLED - nrf_log_backend_flash - Log flash backend
++//==========================================================
++#ifndef NRF_LOG_BACKEND_FLASH_ENABLED
++#define NRF_LOG_BACKEND_FLASH_ENABLED 1
++#endif
++// <q> NRF_LOG_BACKEND_FLASH_CLI_CMDS  - Enable CLI commands for this module.
++
++
++#ifndef NRF_LOG_BACKEND_FLASH_CLI_CMDS
++#define NRF_LOG_BACKEND_FLASH_CLI_CMDS 1
++#endif
++
++// <e> NRF_LOG_BACKEND_FLASHLOG_ENABLED - Enable flashlog backend.
++//==========================================================
++#ifndef NRF_LOG_BACKEND_FLASHLOG_ENABLED
++#define NRF_LOG_BACKEND_FLASHLOG_ENABLED 1
++#endif
++// <o> NRF_LOG_BACKEND_FLASHLOG_QUEUE_SIZE - Logger messages queue size.
++// <i> Queue holds log messages pending to be written to flash.
++// <i> Note that the queue holds logger messages and thus the queue size determines
++// <i> increasing the pool of logger messages (see log message pool configuration).
++
++#ifndef NRF_LOG_BACKEND_FLASHLOG_QUEUE_SIZE
++#define NRF_LOG_BACKEND_FLASHLOG_QUEUE_SIZE 8
++#endif
++
++// </e>
++
++// <e> NRF_LOG_BACKEND_CRASHLOG_ENABLED - Enable crashlog backend.
++//==========================================================
++#ifndef NRF_LOG_BACKEND_CRASHLOG_ENABLED
++#define NRF_LOG_BACKEND_CRASHLOG_ENABLED 1
++#endif
++// <o> NRF_LOG_BACKEND_CRASHLOG_FIFO_SIZE - Number of log messages held to be flushed in panic.
++// <i> Crashlog FIFO always keeps a defined number of the most
++// <i> recent logs (severity level is set on runtime).
++// <i> Note that the FIFO holds logger messages and thus the FIFO size determines
++// <i> increasing the pool of logger messages (see log message pool configuration).
++
++#ifndef NRF_LOG_BACKEND_CRASHLOG_FIFO_SIZE
++#define NRF_LOG_BACKEND_CRASHLOG_FIFO_SIZE 8
++#endif
++
++// </e>
++
++// <o> NRF_LOG_BACKEND_FLASH_SER_BUFFER_SIZE - Size of the buffer used for serialize log message.
++// <i> Message is trimmed if it is longer. It may happen in case of
++// <i> hexdump message. Buffer size must be multiple of 4.
++
++#ifndef NRF_LOG_BACKEND_FLASH_SER_BUFFER_SIZE
++#define NRF_LOG_BACKEND_FLASH_SER_BUFFER_SIZE 64
++#endif
++
++// <h> Flash log location - Configuration of flash area used for storing the logs.
++
++//==========================================================
++// <o> NRF_LOG_BACKEND_FLASH_START_PAGE - Starting page.
++// <i> If 0, then pages directly after the application are used.
++
++#ifndef NRF_LOG_BACKEND_FLASH_START_PAGE
++#define NRF_LOG_BACKEND_FLASH_START_PAGE 0
++#endif
++
++// <o> NRF_LOG_BACKEND_PAGES - Number of pages.
++#ifndef NRF_LOG_BACKEND_PAGES
++#define NRF_LOG_BACKEND_PAGES 1
++#endif
++
++// </h>
++//==========================================================
++
++// </e>
++
+ //==========================================================
+ // <e> NRF_LOG_BACKEND_RTT_ENABLED - nrf_log_backend_rtt - Log RTT backend
+ //==========================================================
+ #ifndef NRF_LOG_BACKEND_RTT_ENABLED
+-#define NRF_LOG_BACKEND_RTT_ENABLED 1
++#define NRF_LOG_BACKEND_RTT_ENABLED 0
+ #endif
+ // <o> NRF_LOG_BACKEND_RTT_TEMP_BUFFER_SIZE - Size of buffer for partially processed strings. 
+ // <i> Size of the buffer is a trade-off between RAM usage and processing.
+@@ -7537,6 +7692,19 @@
+ 
+ // </e>
+ 
++// <e> NRF_LOG_BACKEND_USB_ENABLED - nrf_log_backend_usb - Log USB backend
++//==========================================================
++#ifndef NRF_LOG_BACKEND_USB_ENABLED
++#define NRF_LOG_BACKEND_USB_ENABLED 1
++#endif
++
++// <o> NRF_LOG_BACKEND_USB_TX_PIN - USB TX pin
++#ifndef NRF_LOG_BACKEND_USB_TX_PIN
++#define NRF_LOG_BACKEND_USB_TX_PIN 6
++#endif
++// </e>
++
++
+ // <e> NRF_LOG_BACKEND_UART_ENABLED - nrf_log_backend_uart - Log UART backend
+ //==========================================================
+ #ifndef NRF_LOG_BACKEND_UART_ENABLED
+@@ -7597,7 +7765,7 @@
+ // <i> a timestamp and up to 2 arguments in a single memory object.
+ 
+ #ifndef NRF_LOG_MSGPOOL_ELEMENT_SIZE
+-#define NRF_LOG_MSGPOOL_ELEMENT_SIZE 20
++#define NRF_LOG_MSGPOOL_ELEMENT_SIZE 40
+ #endif
+ 
+ // <o> NRF_LOG_MSGPOOL_ELEMENT_COUNT - Number of elements in the pool of memory objects 
+@@ -7607,7 +7775,7 @@
+ // <i> RAM memory usage.
+ 
+ #ifndef NRF_LOG_MSGPOOL_ELEMENT_COUNT
+-#define NRF_LOG_MSGPOOL_ELEMENT_COUNT 8
++#define NRF_LOG_MSGPOOL_ELEMENT_COUNT 16
+ #endif
+ 
+ // </h> 
+@@ -7645,7 +7813,7 @@
+  
+ 
+ #ifndef NRF_LOG_CLI_CMDS
+-#define NRF_LOG_CLI_CMDS 0
++#define NRF_LOG_CLI_CMDS 1
+ #endif
+ 
+ // <o> NRF_LOG_DEFAULT_LEVEL  - Default Severity level
+@@ -7673,7 +7841,7 @@
+  
+ 
+ #ifndef NRF_LOG_FILTERS_ENABLED
+-#define NRF_LOG_FILTERS_ENABLED 0
++#define NRF_LOG_FILTERS_ENABLED 1
+ #endif
+ 
+ // <o> NRF_LOG_STR_PUSH_BUFFER_SIZE  - Size of the buffer dedicated for strings stored using @ref NRF_LOG_PUSH.
+@@ -7707,7 +7875,7 @@
+ // <e> NRF_LOG_USES_COLORS - If enabled then ANSI escape code for colors is prefixed to every string
+ //==========================================================
+ #ifndef NRF_LOG_USES_COLORS
+-#define NRF_LOG_USES_COLORS 0
++#define NRF_LOG_USES_COLORS 1
+ #endif
+ // <o> NRF_LOG_COLOR_DEFAULT  - ANSI escape code prefix.
+  
