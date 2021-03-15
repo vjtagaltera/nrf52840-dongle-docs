@@ -81,12 +81,17 @@ search nrf52840 dongle communicate via usb
         #define RTS_PIN_NUMBER 5
         #define HWFC           true
 
+
 [7] https://wiki.segger.com/J-Link_cannot_connect_to_the_CPU
     JLink debugging
+
 
 [8] https://jimmywongiot.com/2019/10/25/how-to-use-the-nrf52840-dongle-pca10059-as-development-board/
     https://github.com/jimmywong2003/nrf52840-dongle-example/
 
 [9] https://github.com/NordicSemiconductor/pc-nrfconnect-launcher
+
+
+[10] https://www.oreilly.com/library/view/getting-started-with/9781491900550/ch04.html
 
 
