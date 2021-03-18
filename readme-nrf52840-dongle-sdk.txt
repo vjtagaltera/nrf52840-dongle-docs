@@ -6,6 +6,7 @@ toc:  pca10059 examples
       novelbits.io nrf52840 usb dongle tutorial 2
       nrf-connect started ble-connectivity 4.1.2
       nrf52840 dongle programming tutorial by nordic
+      dongle uart log
 
 
 pca10059 examples
@@ -123,4 +124,16 @@ nrf cli usb log
 https://github.com/jimmywong2003/nrf52840-dongle-example/
 
 
+dongle uart log
+
+  search nrf52840 pin 31
+  https://devzone.nordicsemi.com/f/nordic-q-a/30194/default-pin-config-31-is-wrong-for-nrf52840
+        default pin 31 for pwm is wrong
+        NRF_DRV_PWM_DEFAULT_CONFIG value should be changed to NRF_DRV_PWM_PIN_NOT_USED
+
+  default NRF_LOG_BACKEND_UART_TX_PIN is set to 31. will use 10 as in bookmark[3].
+        #define RX_PIN_NUMBER   9 // 13
+        #define TX_PIN_NUMBER  10 // 15
+
+  the above is not worked out. eventually use a modified blinky example with uart1 on app.
 

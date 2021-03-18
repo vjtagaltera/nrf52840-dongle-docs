@@ -95,3 +95,11 @@ search nrf52840 dongle communicate via usb
 [10] https://www.oreilly.com/library/view/getting-started-with/9781491900550/ch04.html
 
 
+search nrf52 ble_app_uart_c example
+
+[11] https://devzone.nordicsemi.com/f/nordic-q-a/20641/how-to-use-ble_app_uart_c-for-custom-uuid-service
+
+[12] https://devzone.nordicsemi.com/f/nordic-q-a/52376/modify-ble_app_uart_c-example-to-scan-for-custom-uuid-not-working
+     https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v15.3.0%2Flib_ble_scan.html
+          scanning mode
+
