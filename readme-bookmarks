@@ -103,3 +103,33 @@ search nrf52 ble_app_uart_c example
      https://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v15.3.0%2Flib_ble_scan.html
           scanning mode
 
+
+search nrf52840 dongle python
+
+[13] https://devzone.nordicsemi.com/f/nordic-q-a/39819/regarding-python-scripts-for-nrf52840-to-connect-and-transfer-data
+      use pc-ble-driver-py
+      https://github.com/NordicSemiconductor/pc-ble-driver-py
+
+[14] https://devzone.nordicsemi.com/f/nordic-q-a/41062/nrf52840-dongle-and-ble_serial-py
+      use experimental console_over_bluetooth_application
+          http://infocenter.nordicsemi.com/index.jsp?topic=%2Fcom.nordic.infocenter.sdk5.v15.2.0%2Fble_sdk_app_cli.html
+
+      Q:  I have tried calling: self.adapter.authenticate(self.conn_handle, bond=True, lesc=False) after 
+          a successful connection. This works if the peripheral isn't bonded yet, i.e first time bond. 
+      A:  self.adapter.authenticate() is used for pairing, optionally also bonding.
+
+          In order to reestablish a bond you can use self.adapter.encrypt(), with the keys that were stored 
+          during self.adapter.authenticate(). The central is free to start this procedure when it wants to, 
+          and so it should be safe to do as early as on the connection event if you want to.
+
+          The correct way to handle a security request (on_gap_evt_sec_request) is to either authenticate() or encrypt(), 
+          depending on whether a bond already exists. Similarly, you may choose to do either authenticate() or encrypt() 
+          on the connected event, based on whether the peer is previously bonded or not.
+
+          The self.adapter.authenticate() and self.adapter.encrypt() API calls correspond to sd_ble_gap_authenticate() 
+          and sd_ble_gap_encrypt() from the SoftDevice API documentation. See for instance the Security Request Reception 
+          Message Sequence Chart.
+          https://www.nordicsemi.com/en/DocLib/Content/SoftDevice_API_Doc/S132/v3-0-0/group_ble_gap_central_sec_req_msc
+
+[15] https://circuitpython.org/board/pca10059/
+
