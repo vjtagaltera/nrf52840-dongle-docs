@@ -133,3 +133,55 @@ search nrf52840 dongle python
 
 [15] https://circuitpython.org/board/pca10059/
 
+
+search nrf52 ble_app_uart disable sleep mode
+
+[16] https://devzone.nordicsemi.com/f/nordic-q-a/11996/how-to-let-nrf51822-ble_app_uart-never-sleep
+      call advertising again: 
+            case BLE_ADV_EVT_IDLE: { /* start advertising again */ err_code = advertising_start(); }
+
+[17] https://devzone.nordicsemi.com/f/nordic-q-a/21413/completely-disabling-sleep-mode
+        [1] remove the BLE_ADV_EVT_IDLE case and BSP_EVENT_SLEEP case.
+        [2] change advdata.flags to BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE and APP_ADV_TIMEOUT_IN_SECONDS to 0
+
+     https://devzone.nordicsemi.com/f/nordic-q-a/10729/my-device-is-freezing-and-restarting
+        debug the target
+
+
+search NRF52 scan result
+
+[18] https://devzone.nordicsemi.com/f/nordic-q-a/47787/how-to-get-scan-response-data
+        static void on_adv_report(const ble_evt_t * const p_ble_evt)
+        {
+            ret_code_t err_code;
+            data_t     adv_data;
+            data_t     dev_name;
+            bool       do_connect = false;
+            const uint8_t mac[] = {0x91,0x49,0xf0,0xf9,0x81,0x00};
+            // For readibility.
+            ble_gap_evt_t  const * p_gap_evt  = &p_ble_evt->evt.gap_evt;
+            ble_gap_addr_t const * peer_addr  = &p_gap_evt->params.adv_report.peer_addr;
+        
+            // Initialize advertisement report for parsing
+            adv_data.p_data   = (uint8_t *)p_gap_evt->params.adv_report.data;
+            adv_data.data_len = p_gap_evt->params.adv_report.dlen;
+        
+            if(!memcmp(mac,peer_addr->addr,6))
+            {
+              NRF_LOG_INFO("FOUND!");
+            }
+        }
+
+
+search nrf52 ble advertising data decoding
+
+[19] https://devzone.nordicsemi.com/f/nordic-q-a/17160/how-to-decode-advertising-data
+        You should use the parameters BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME and 
+        BLE_GAP_AD_TYPE_SHORT_LOCAL_NAME in the adv_report_parse() functions to search for names.
+
+        Check out the function on_adv_report() in main.c file of BLE Multi-link Central Example.
+
+[20] https://devzone.nordicsemi.com/f/nordic-q-a/10649/how-to-get-manufacturer-s-data-from-a-received-advertising-message
+     https://devzone.nordicsemi.com/nordic/short-range-guides/b/bluetooth-low-energy/posts/ble-central-tutorial
+        ****use adv_report_parse()
+
