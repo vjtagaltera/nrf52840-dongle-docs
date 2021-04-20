@@ -185,3 +185,24 @@ search nrf52 ble advertising data decoding
      https://devzone.nordicsemi.com/nordic/short-range-guides/b/bluetooth-low-energy/posts/ble-central-tutorial
         ****use adv_report_parse()
 
+
+search nrf52840 dongle usb cdc acm example
+
+[21] https://devzone.nordicsemi.com/f/nordic-q-a/39435/running-examples-on-nrf52840-dongle
+        If you leave UART lines floating, there might be an error detected on the lines, putting the device into the error handler. 
+        By default, most examples in our SDK that use app_uart pass the errors to APP_ERROR_CHECK in the UART event handler. 
+        If you are using app_uart, you can try to remove this macro, to see if the rest of your code continue executing.
+
+
+search usb vid:pid 1915:520F
+
+[22] https://github.com/NordicSemiconductor/pc-nrfconnect-programmer/issues/116
+        DFU trigger interface not recognized in composite device
+        A solution follows. 
+
+     https://devzone.nordicsemi.com/f/nordic-q-a/62174/usb-dfu-trigger-library-problem?ReplySortBy=Votes&ReplySortOrder=Descending
+            app_usbd_class_inst_t const * class_cdc_acm = app_usbd_cdc_acm_class_inst_get(&nrf_cli_cdc_acm);
+            ret = app_usbd_class_append(class_cdc_acm);
+        this code must be after not before: 
+            nrf_dfu_trigger_usb_init();
+
