@@ -38,7 +38,7 @@ testing example: copied from ble_app_blinky:
 ses versions
     ses 3.4.0 sdk-15.0.0 not able to debug the dongle. downloading appears to succeed but image is not working.
     ses 5.4.0c sdk-15.2.0 same. 
-    use nrf-connect 3.6.1 to program. it works. 
+    use nrf-connect v3.6.1 programmer v1.4.8 to program. it works. 
         clicked the nrf-connect installer twice, it installed jlink 6.88a and nordic drivers the second time. 
     work sequence: when connected the dongle swi to dk p19
         [1] build in ses 5.4.0c. 
